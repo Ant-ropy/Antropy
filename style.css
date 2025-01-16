@@ -19,8 +19,9 @@ header {
     color: #fff;
 }
 .logo {
-    font-size: 1.5rem;
+    font-size: 2rem;
     font-weight: bold;
+    font-family: 'Helvetica', 'Arial', sans-serif;
 }
 .burger-menu {
     display: none;
