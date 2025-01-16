@@ -18,10 +18,10 @@ header {
     background: #a02b2b;
     color: #fff;
 }
-.logo img {
-    max-width: 100%;
-    height: auto;
-}   
+.logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
 .burger-menu {
     display: none;
     flex-direction: column;
