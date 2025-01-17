@@ -71,6 +71,44 @@ footer {
     background: #333;
     color: white;
 }
+
+.stream-buttons {
+    display: flex;
+    gap: 10px; /* Space between buttons */
+    justify-content: center; /* Center buttons horizontally */
+    margin-top: 20px; /* Optional, for spacing above the buttons */
+  }
+  
+  .stream-btn {
+    padding: 10px 20px;
+    font-size: 16px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+  }
+  
+  .stream-btn:nth-child(1) {
+    background-color: #4CAF50; /* Green */
+    color: white;
+  }
+  
+  .stream-btn:nth-child(2) {
+    background-color: #008CBA; /* Blue */
+    color: white;
+  }
+  
+  .stream-btn:nth-child(3) {
+    background-color: #f44336; /* Red */
+    color: white;
+  }
+  
+  .stream-btn:hover {
+    background-color: #555; /* Darker shade on hover */
+    transform: scale(1.05); /* Slight scaling effect */
+  }
+
+
 @media (max-width: 768px) {
     .burger-menu {
         display: flex;
