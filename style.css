@@ -77,36 +77,38 @@ footer {
     gap: 10px; /* Space between buttons */
     justify-content: center; /* Center buttons horizontally */
     margin-top: 20px; /* Optional, for spacing above the buttons */
-  }
-  
-  .stream-btn {
+    flex-wrap: wrap; /* Allow buttons to wrap when needed */
+}
+
+.stream-btn {
     padding: 10px 200px;
     font-size: 16px;
     border: none;
     border-radius: 5px;
     cursor: pointer;
     transition: background-color 0.3s, transform 0.2s;
-  }
-  
-  .stream-btn:nth-child(1) {
+}
+
+/* Individual button styles */
+.stream-btn:nth-child(1) {
     background-color: #4CAF50; /* Green */
     color: white;
-  }
-  
-  .stream-btn:nth-child(2) {
+}
+
+.stream-btn:nth-child(2) {
     background-color: #008CBA; /* Blue */
     color: white;
-  }
-  
-  .stream-btn:nth-child(3) {
+}
+
+.stream-btn:nth-child(3) {
     background-color: #f44336; /* Red */
     color: white;
-  }
-  
-  .stream-btn:hover {
+}
+
+.stream-btn:hover {
     background-color: #555; /* Darker shade on hover */
     transform: scale(1.05); /* Slight scaling effect */
-  }
+}
 
 
 @media (max-width: 768px) {
@@ -129,5 +131,16 @@ footer {
     }
     nav.active {
         display: flex;
+    }
+
+    .stream-buttons {
+        flex-direction: column; /* Stack the buttons vertically */
+        align-items: center; /* Center buttons in the stack */
+    }
+
+    .stream-btn {
+        width: 80%; /* Adjust button width to fit smaller screens */
+        max-width: 300px; /* Optional, to prevent excessively wide buttons */
+        padding: 10px; /* Adjust padding for smaller buttons */
     }
 }
