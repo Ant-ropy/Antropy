@@ -109,6 +109,34 @@ footer {
   }
 
 
+/* Style for the video wrapper */
+.video-wrapper {
+    position: relative;
+    width: 800px;
+    height: 450px;
+}
+
+/* Overlay to block interaction */
+.video-wrapper .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: transparent; /* Fully transparent */
+    z-index: 1; /* Ensures it sits above the iframe */
+    pointer-events: auto; /* Keeps the overlay interactive to block the iframe */
+}
+
+/* Optional: Styling for the iframe */
+.video-wrapper iframe {
+    position: relative;
+    z-index: 0; /* Ensures iframe is below the overlay */
+}
+
 @media (max-width: 768px) {
     .burger-menu {
         display: flex;
