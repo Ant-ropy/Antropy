@@ -1,35 +1,22 @@
-function toggleMenu() {
-    const nav = document.querySelector('nav');
-    nav.classList.toggle('active');
-}
-
-
-
-
-
 document.getElementById('captureButton').addEventListener('click', async () => {
-    const video = document.getElementById('liveStream');
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    const resultBox = document.getElementById('result');
+    resultBox.textContent = "⏳ Capturing and analyzing...";
 
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+        const response = await fetch('https://<your-render-url>.onrender.com/generate');
+        const data = await response.json();
 
-    // Convert canvas image to Base64
-    const frameData = canvas.toDataURL('image/png');
+        if (data.error) {
+            resultBox.textContent = `❌ Error: ${data.error}`;
+            return;
+        }
 
-    // Send Base64 frame data to backend
-    const response = await fetch('https://your-backend-url/capture-frame', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frameData }),
-    });
-
-    if (response.ok) {
-        const result = await response.json();
-        alert(`Hash captured: ${result.hash}`);
-    } else {
-        alert('Failed to capture hash. Try again.');
+        resultBox.innerHTML = `
+            <strong>Binary:</strong><br><code>${data.binary}</code><br><br>
+            <strong>SHA-256 Hash:</strong><br><code>${data.hash}</code><br><br>
+            <strong>Shannon Entropy:</strong> ${data.entropy}
+        `;
+    } catch (err) {
+        resultBox.textContent = "❌ Failed to connect to backend.";
     }
 });
