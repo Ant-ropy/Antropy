@@ -3,7 +3,7 @@ document.getElementById('captureButton').addEventListener('click', async () => {
     resultBox.textContent = "⏳ Capturing and analyzing...";
 
     try {
-        const response = await fetch('https://<your-render-url>.onrender.com/generate');
+        const response = await fetch('https://antropy-api.onrender.com/generate');
         const data = await response.json();
 
         if (data.error) {
