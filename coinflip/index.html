@@ -1,305 +1,175 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Provably-Fair Coin Flip (Bitstream Backed)</title>
+  <style>
+    :root{--bg:#f6f7fb;--card:#fff;--ink:#0f172a;--muted:#64748b;--accent:#1e40af;--ok:#15803d;--bad:#b91c1c;--ring:#e2e8f0}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial}
+    .wrap{max-width:1000px;margin:32px auto;padding:0 16px}
+    h1{font-size:24px;margin:0 0 16px} h2{font-size:18px;margin:24px 0 8px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    @media(min-width:900px){.grid{grid-template-columns:2fr 1fr}}
+    .card{background:var(--card);border:1px solid var(--ring);border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.04)}
+    .card .pad{padding:16px}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    input[type="number"], input[type="text"], textarea{width:100%;border:1px solid var(--ring);border-radius:10px;padding:10px 12px;background:white}
+    textarea{height:120px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+    .row{display:flex;gap:8px;align-items:center}
+    .btn{appearance:none;border:1px solid var(--ring);background:#0ea5e9;color:#fff;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:#e2e8f0;color:#0f172a}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+    .muted{color:var(--muted)}
+    table{width:100%;border-collapse:collapse} th,td{padding:8px;border-bottom:1px solid var(--ring);text-align:left;font-size:13px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--ring);font-size:11px;background:#f8fafc}
+    .good{color:var(--ok)} .bad{color:var(--bad)}
+    .commit{word-break:break-all;background:#f1f5f9;border-radius:8px;padding:8px;font-size:12px}
+    .kbd{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f8fafc;border:1px solid var(--ring);padding:2px 6px;border-radius:6px}
+    .note{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Provably‑Fair Coin Flip <span class="pill mono">Static HTML • No libs</span></h1>
+    <div class="grid">
+      <div class="card">
+        <div class="pad">
+          <h2>Play</h2>
+          <div class="row" style="margin:8px 0 12px">
+            <button id="pick-heads" class="btn">Pick: HEADS</button>
+            <button id="pick-tails" class="btn secondary">Pick: TAILS</button>
+            <span class="muted">Current pick: <strong id="pick-label">HEADS</strong></span>
+          </div>
+          <div class="row" style="margin:0 0 12px">
+            <label style="margin:0">Wager (£)</label>
+            <input id="wager" type="number" min="1" value="5" style="max-width:120px" />
+            <span class="muted">Balance: <strong id="balance">£100.00</strong></span>
+          </div>
+          <div class="row" style="margin:0 0 16px">
+            <button id="flip" class="btn">Flip coin</button>
+            <button id="reset" class="btn secondary">Reset demo</button>
+            <span class="muted">Usable pairs remaining: <span class="mono" id="pairs">0</span></span>
+          </div>
 
-// UI: shadcn/ui (available in this environment)
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Download, Coins, ShieldCheck, Info, RefreshCw } from "lucide-react";
-
-/**
- * Provably-fair coin flip demo that consumes your OWN binary sequence.
- * 
- * Key ideas:
- * - Uses your bitstream as the *only* randomness source.
- * - Applies a streaming Von Neumann extractor (pairs: 01=Heads, 10=Tails, 00/11 discarded)
- *   to neutralise bias while preserving unpredictability from your source.
- * - Shows a commitment (SHA-256) to the original bitstream at load; you can later reveal the
- *   exact bitstream to prove no tampering ("commit-reveal").
- * - Records an audit log (JSON) you can download.
- * - This is a demo UI (no real money); you must add server-side checks and compliance before use.
- */
-
-// Utility: SHA-256 in browser
-async function sha256Hex(str) {
-  const enc = new TextEncoder();
-  const buf = await crypto.subtle.digest("SHA-256", enc.encode(str));
-  const bytes = new Uint8Array(buf);
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-// Consume a Von Neumann-valid outcome from a bitstream starting at index
-function nextVNOutcome(bits, startIdx) {
-  let i = startIdx;
-  const n = bits.length;
-  while (i + 1 < n) {
-    const a = bits[i];
-    const b = bits[i + 1];
-    if (a !== b) {
-      // 01 => Heads, 10 => Tails
-      const outcome = a === "0" && b === "1" ? "HEADS" : "TAILS";
-      return { outcome, nextIndex: i + 2, consumed: bits.slice(startIdx, i + 2) };
-    }
-    i += 2; // discard 00 or 11
-  }
-  return { outcome: null, nextIndex: n, consumed: bits.slice(startIdx, n) };
-}
-
-function formatPounds(v) {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: "GBP" }).format(v);
-}
-
-export default function ProvablyFairCoinFlip() {
-  // Provide your raw bitstream here (string of '0' and '1').
-  // Replace this placeholder with your actual sequence or fetch it from your server.
-  const [bitstream, setBitstream] = useState(
-    "0101100110101011001101010110100101100110011010101001100110101011" // placeholder
-  );
-
-  const [index, setIndex] = useState(0); // cursor into raw bitstream
-  const [balance, setBalance] = useState(100); // demo credits
-  const [wager, setWager] = useState(5);
-  const [pick, setPick] = useState("HEADS");
-  const [commitment, setCommitment] = useState("");
-
-  const [audit, setAudit] = useState([]);
-  const [busy, setBusy] = useState(false);
-
-  const remainingPairs = useMemo(() => Math.floor((bitstream.length - index) / 2), [bitstream, index]);
-
-  useEffect(() => {
-    // compute commitment once for current bitstream
-    (async () => setCommitment(await sha256Hex(bitstream)))();
-  }, [bitstream]);
-
-  const canFlip = remainingPairs > 0 && wager > 0 && balance >= wager && !busy;
-
-  async function doFlip() {
-    setBusy(true);
-    try {
-      const { outcome, nextIndex, consumed } = nextVNOutcome(bitstream, index);
-      if (!outcome) {
-        alert("Not enough usable bits remain after Von Neumann extraction. Please load a longer sequence.");
-        return;
-      }
-
-      const win = outcome === pick;
-      const newBalance = win ? balance + wager : balance - wager;
-
-      const entry = {
-        ts: new Date().toISOString(),
-        indexBefore: index,
-        indexAfter: nextIndex,
-        consumedBits: consumed,
-        outcome,
-        playerPick: pick,
-        wager,
-        result: win ? "+" + wager : "-" + wager,
-        balanceAfter: newBalance,
-      };
-      setAudit((prev) => [entry, ...prev]);
-
-      setIndex(nextIndex);
-      setBalance(newBalance);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function resetDemo() {
-    setIndex(0);
-    setBalance(100);
-    setAudit([]);
-  }
-
-  async function downloadAudit() {
-    const payload = {
-      committedHash: commitment,
-      bitLength: bitstream.length,
-      extraction: "Von Neumann (pairs; 01=H, 10=T)",
-      audit: audit.slice().reverse(), // chronological
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "coinflip_audit.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 p-6">
-      <div className="max-w-5xl mx-auto grid gap-6 lg:grid-cols-3">
-        {/* Left column: Game */}
-        <Card className="lg:col-span-2 shadow-lg rounded-2xl">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-                <Coins className="h-6 w-6" /> Provably-Fair Coin Flip
-              </h1>
-              <Badge variant="outline" className="font-mono">SHA-256(commit) ready</Badge>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Controls */}
-              <div className="space-y-4">
-                <div>
-                  <Label className="mb-1 block">Your pick</Label>
-                  <Tabs value={pick} onValueChange={setPick} className="w-full">
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="HEADS">Heads</TabsTrigger>
-                      <TabsTrigger value="TAILS">Tails</TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label>Wager</Label>
-                    <span className="text-sm text-slate-500">{formatPounds(wager)}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Slider
-                      value={[wager]}
-                      onValueChange={(v) => setWager(v[0])}
-                      min={1}
-                      max={Math.min(50, balance)}
-                      step={1}
-                      className="mt-2"
-                    />
-                    <Input
-                      type="number"
-                      min={1}
-                      max={balance}
-                      value={wager}
-                      onChange={(e) => setWager(Math.max(1, Math.min(balance, Number(e.target.value))))}
-                      className="w-24"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <Button onClick={doFlip} disabled={!canFlip}>
-                    Flip {busy ? "…" : "coin"}
-                  </Button>
-                  <Button variant="secondary" onClick={resetDemo}>
-                    <RefreshCw className="h-4 w-4 mr-1" /> Reset demo
-                  </Button>
-                </div>
-
-                <div className="text-sm text-slate-600 space-y-1">
-                  <div>Balance: <span className="font-semibold">{formatPounds(balance)}</span></div>
-                  <div>Usable pairs remaining: <span className="font-mono">{remainingPairs}</span></div>
-                  <div>
-                    Commitment (SHA-256 of full bitstream):
-                    <div className="font-mono text-xs break-all bg-slate-100 p-2 rounded mt-1">{commitment}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Outcome & History */}
-              <div className="space-y-4">
-                <Card className="border-dashed">
-                  <CardContent className="p-4">
-                    <div className="text-sm text-slate-500 flex items-center gap-2 mb-2"><ShieldCheck className="h-4 w-4"/>Provability</div>
-                    <p className="text-sm text-slate-700 leading-relaxed">
-                      Each flip consumes bits from your committed sequence using a Von Neumann extractor. Download the audit log to verify indices, consumed bits, and outcomes. Later, reveal the full bitstream to anyone and they can recompute every flip.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Separator />
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-medium">Recent flips</h2>
-                    <Button variant="outline" size="sm" onClick={downloadAudit}>
-                      <Download className="h-4 w-4 mr-1"/> Audit JSON
-                    </Button>
-                  </div>
-                  <ScrollArea className="h-64 rounded border">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-white z-10">
-                        <tr className="text-left border-b">
-                          <th className="px-3 py-2">Time</th>
-                          <th className="px-3 py-2">Idx</th>
-                          <th className="px-3 py-2">Bits</th>
-                          <th className="px-3 py-2">Pick</th>
-                          <th className="px-3 py-2">Outcome</th>
-                          <th className="px-3 py-2">Δ</th>
-                          <th className="px-3 py-2">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {audit.map((a, i) => (
-                          <tr key={i} className="border-b font-mono">
-                            <td className="px-3 py-2 whitespace-nowrap">{new Date(a.ts).toLocaleTimeString()}</td>
-                            <td className="px-3 py-2">{a.indexBefore}→{a.indexAfter}</td>
-                            <td className="px-3 py-2 break-all text-xs">{a.consumedBits}</td>
-                            <td className="px-3 py-2">{a.playerPick[0]}</td>
-                            <td className="px-3 py-2 font-semibold">{a.outcome}</td>
-                            <td className={`px-3 py-2 ${a.result.startsWith("+") ? "text-green-600" : "text-red-600"}`}>{a.result}</td>
-                            <td className="px-3 py-2">{formatPounds(a.balanceAfter)}</td>
-                          </tr>
-                        ))}
-                        {audit.length === 0 && (
-                          <tr>
-                            <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>No flips yet</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </ScrollArea>
-                </div>
+          <div class="card" style="border-style:dashed">
+            <div class="pad">
+              <div class="muted" style="margin-bottom:6px">Provability</div>
+              <div class="note">At load, we compute <span class="kbd">SHA‑256</span> of your full bitstream. Each flip consumes bits in order using a Von Neumann extractor (01→HEADS, 10→TAILS; 00/11 discarded). Download the audit log and later reveal the full bitstream so anyone can recompute every flip.</div>
+              <div style="margin-top:8px">
+                <div class="muted">Commitment (SHA‑256 of full bitstream):</div>
+                <div id="commit" class="commit mono">—</div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Right column: Bitstream & settings */}
-        <Card className="shadow-lg rounded-2xl">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2 text-slate-700"><Info className="h-5 w-5"/> Bitstream</div>
-            <Label htmlFor="bits" className="text-sm">Paste your raw bitstream (0/1 only)</Label>
-            <textarea
-              id="bits"
-              value={bitstream}
-              onChange={(e) => {
-                const sanitized = e.target.value.replace(/[^01]/g, "");
-                setBitstream(sanitized);
-                setIndex(0);
-                setAudit([]);
-              }}
-              className="w-full h-40 font-mono text-xs p-3 rounded border bg-white"
-              placeholder="e.g., 0100110101..."
-            />
-            <div className="text-xs text-slate-500">Length: <span className="font-mono">{bitstream.length}</span> bits</div>
-
-            <Separator />
-
-            <div className="text-xs text-slate-600 leading-relaxed">
-              <p className="mb-2"><strong>How this stays fair:</strong> We commit to the full bitstream hash before gameplay and consume bits in order using a bias-neutral extractor. Anyone can later verify outcomes by recomputing from the revealed sequence.</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>Each flip uses 2+ raw bits; some pairs are discarded (00/11) to remove bias.</li>
-                <li>When pairs run out, you must load more bits (fresh entropy).</li>
-                <li>Server-side enforcement is required for real stakes; this demo is client-only.</li>
-              </ul>
-            </div>
-          </CardContent>
-        </Card>
+          <h2>Recent flips</h2>
+          <div style="max-height:300px;overflow:auto;border:1px solid var(--ring);border-radius:10px">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Idx</th>
+                  <th>Bits</th>
+                  <th>Pick</th>
+                  <th>Outcome</th>
+                  <th>Δ</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody id="log">
+                <tr><td colspan="7" class="muted" style="text-align:center;padding:16px">No flips yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="download" class="btn secondary">Download audit JSON</button>
+          </div>
+        </div>
       </div>
 
-      <div className="max-w-5xl mx-auto mt-6 text-xs text-slate-500">
-        <p>
-          <strong>Compliance note:</strong> If used for real-money wagering, you must add age gating, limits, self-exclusion, AML/KYC, dispute processes, and jurisdiction-specific licensing. Consider running the extractor and indexing on the server and signing each round.
-        </p>
+      <div class="card">
+        <div class="pad">
+          <h2>Bitstream</h2>
+          <label for="bits">Paste your raw bitstream (0/1 only)</label>
+          <textarea id="bits" placeholder="e.g., 0100110101…"></textarea>
+          <div class="note">Length: <span class="mono" id="bitlen">0</span> bits</div>
+          <p class="note" style="margin-top:8px">
+            <strong>How this stays fair:</strong> commitment first, then sequential consumption with a bias‑neutral extractor. When usable pairs run out, load a longer sequence (fresh entropy). For real‑money use you must implement server‑side indexing and jurisdictional compliance (age gating, KYC/AML, limits, licensing).
+          </p>
+        </div>
       </div>
     </div>
-  );
+  </div>
+
+<script>
+// ————— Utilities —————
+function fmtGBP(v){return new Intl.NumberFormat(undefined,{style:"currency",currency:"GBP"}).format(v)}
+async function sha256Hex(str){const enc=new TextEncoder();const buf=await crypto.subtle.digest('SHA-256',enc.encode(str));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')}
+function nextVNOutcome(bits,startIdx){let i=startIdx;const n=bits.length;while(i+1<n){const a=bits[i],b=bits[i+1];if(a!==b){return { outcome: (a==='0'&&b==='1')? 'HEADS':'TAILS', nextIndex:i+2, consumed:bits.slice(startIdx,i+2)} } i+=2 } return { outcome:null, nextIndex:n, consumed:bits.slice(startIdx,n) } }
+
+// ————— State —————
+let pick='HEADS';
+let balance=100; // demo credits
+let wager=5;
+let bitstream='';
+let index=0; // cursor in raw bits
+let audit=[]; // newest first
+
+// ————— DOM —————
+const $ = (id)=>document.getElementById(id);
+const elPickH=$('pick-heads'), elPickT=$('pick-tails'), elPickL=$('pick-label');
+const elWager=$('wager'), elBalance=$('balance'), elPairs=$('pairs');
+const elFlip=$('flip'), elReset=$('reset');
+const elBits=$('bits'), elBitLen=$('bitlen'), elCommit=$('commit');
+const elLog=$('log'), elDownload=$('download');
+
+function renderMeta(){ elBalance.textContent=fmtGBP(balance); elPairs.textContent=Math.floor((bitstream.length-index)/2); elPickL.textContent=pick; }
+function renderLog(){
+  elLog.innerHTML = '';
+  if(audit.length===0){ const tr=document.createElement('tr'); const td=document.createElement('td'); td.colSpan=7; td.className='muted'; td.style.textAlign='center'; td.style.padding='16px'; td.textContent='No flips yet'; tr.appendChild(td); elLog.appendChild(tr); return; }
+  for(const a of audit){ const tr=document.createElement('tr');
+    const cells=[ new Date(a.ts).toLocaleTimeString(), `${a.indexBefore}→${a.indexAfter}`, a.consumedBits, a.playerPick[0], a.outcome, a.result, fmtGBP(a.balanceAfter) ];
+    cells.forEach((c,i)=>{ const td=document.createElement('td'); td.textContent=c; if(i===5){ td.className = a.result.startsWith('+')?'good':'bad'; } if(i===2){ td.className='mono'; } tr.appendChild(td); });
+    elLog.appendChild(tr);
+  }
 }
+
+async function recomputeCommit(){ elCommit.textContent = bitstream.length? await sha256Hex(bitstream) : '—'; }
+
+// ————— Events —————
+elPickH.addEventListener('click',()=>{pick='HEADS'; elPickH.classList.remove('secondary'); elPickT.classList.add('secondary'); renderMeta()});
+elPickT.addEventListener('click',()=>{pick='TAILS'; elPickT.classList.remove('secondary'); elPickH.classList.add('secondary'); renderMeta()});
+
+elWager.addEventListener('input',()=>{ const v = Math.max(1, Number(elWager.value||1)); wager=v; elWager.value=v; });
+
+elBits.addEventListener('input', async ()=>{ bitstream = (elBits.value||'').replace(/[^01]/g,''); elBits.value = bitstream; index=0; audit=[]; elBitLen.textContent = bitstream.length; await recomputeCommit(); renderMeta(); renderLog(); });
+
+elFlip.addEventListener('click', ()=>{
+  if(!bitstream){ alert('Paste a bitstream first.'); return; }
+  if(wager<1){ alert('Wager must be at least 1.'); return; }
+  if(balance < wager){ alert('Insufficient balance.'); return; }
+  const { outcome, nextIndex, consumed } = nextVNOutcome(bitstream, index);
+  if(!outcome){ alert('Not enough usable pairs remain (Von Neumann discards 00/11). Load more bits.'); return; }
+  const win = (outcome===pick);
+  balance = win ? balance + wager : balance - wager;
+  const entry = { ts:new Date().toISOString(), indexBefore:index, indexAfter:nextIndex, consumedBits:consumed, outcome, playerPick:pick, wager, result: (win?'+':'-')+wager, balanceAfter:balance };
+  audit = [entry, ...audit];
+  index = nextIndex;
+  renderMeta(); renderLog();
+});
+
+elReset.addEventListener('click',()=>{ balance=100; wager=5; index=0; audit=[]; elWager.value='5'; renderMeta(); renderLog(); })
+
+elDownload.addEventListener('click',()=>{
+  const payload = { committedHash: elCommit.textContent, bitLength: bitstream.length, extraction: 'Von Neumann (pairs; 01=H, 10=T)', audit: audit.slice().reverse() };
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='coinflip_audit.json'; a.click(); URL.revokeObjectURL(url);
+});
+
+// initial render
+renderMeta(); renderLog();
+</script>
+</body>
+</html>
